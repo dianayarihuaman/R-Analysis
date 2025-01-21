@@ -1,0 +1,1620 @@
+---
+title: "test_final"
+author:
+- Diana Yarihuaman
+- Aldo Salazar
+- Hugo Murgueza
+- Marcelo Narvaez
+date: "r Sys.Date()"
+output:
+  pdf_document: default
+  word_document: default
+geometry: top=1.27cm, bottom=1.27cm, left=1.27cm, right=1.27cm
+fontsize: 11pt
+---
+
+```{r setup, include=FALSE}
+# install.packages("clickR")
+library(clickR)
+library(MASS)
+library(knitr)
+library(gridExtra)
+library(mice)
+library(corrplot)
+library(dplyr)
+library(kableExtra)
+library(lmtest)
+library(pROC)
+library(ResourceSelection)
+library(ggplot2)
+library(dplyr)
+
+```
+
+# Introducción:
+
+El telemarketing es una estrategia clave para muchas empresas, ya que permite interactuar directamente con los clientes, promoviendo productos o servicios de manera efectiva. Sin embargo, para optimizar estas estrategias, es fundamental analizar los datos generados durante las campañas. 
+
+En el presente informe vamos a trabajar con una base de datos “Bank Marketing” de una campaña de marketing realizada por una entidad bancaria portuguesa mediante llamadas telefónicas. La campaña pretende vender suscripciones de un depósito bancario a plazo representado por la variable “y” (suscripción o no suscripción). Para ver la inferencia estadística de la base de datos vamos a realizar un modelo de regresión logística binaria con esto predecimos si un cliente comprará o no una suscripción en función de las variables predictoras es decir, los atributos del cliente, como la información demográfica y los indicadores macroeconómicos.
+
+# Exploración y revisión:
+
+## Ánalisis exploratorio de las BBDD:
+
+En este apartado se procede a realizar una exploración inicial de la base mediante el programa R-Studio, para poder comprender mejor la base de datos.
+Como se puede observar tras cargar los datos, la base original con la que partimos cuenta con 4119 observaciones y 21 variables.
+
+```{r, echo = FALSE}
+BankClients = read.delim("Grupo2_BankMarketing.txt",
+sep = "\t", row.names = 1, as.is = TRUE)
+# Cantidad de observaciones (filas) y variables (columnas)
+dim(BankClients)
+# Vista previa de los datos
+#head(BankClients, 3)
+```
+
+### Descripción de las variables
+
+Las variables explicativas utilizadas en esta base de datos abarcan diversos aspectos relacionados con los clients, que nos permitiran su análisis detallado. A continuación, vamos a enumararlas con sus correspondientes interpretaciones:
+
+1) **age**: edad
+2) **job**: tipo de trabajo
+3) **marital**: estado civil
+4) **education**: nivel educativo
+5) **default**: ¿tiene crédito impagado?
+6) **housing**: ¿tiene un préstamo de vivienda?
+7) **loan**: ¿tiene un préstamo personal?
+8) **contact**: tipo de comunicación de contacto
+9) **month**: mes del último contacto del año
+10) **day_of_week**: día de la semana del último contacto
+11) **duration**: duración del último contacto (en segundos)
+12) **campaign**: número de contactos realizados durante esta campaña y para este cliente
+13) **pdays**: número de días que han pasado desde que el cliente fue contactado por última vez en una campaña anterior (999 significa que no ha habido contactos previos)
+14) **previous**: número de contactos realizados antes de esta campaña para este cliente
+15) **poutcome**: resultado de la campaña de marketing anterior
+16) **emp.var.rate**: tasa de variación del empleo (indicador trimestral)
+17) **cons.price.idx**: índice de precios al consumidor (indicador mensual)
+18) **cons.conf.idx**: índice de confianza del consumidor (indicador mensual)
+19) **euribor3m**: tasa euribor a 3 meses (indicador diario)
+20) **nr.employed**: número de empleados (indicador trimestral)
+21) **y**: ¿el cliente ha suscrito un depósito a plazo fijo?
+
+Ademas para poder llevar a cabo un mejor análisis, se ha decidido clasificar cada variable según su tipo en una tabla.
+
+```{r tipos, echo = FALSE, message=FALSE, warning=FALSE}
+auxiBank = data.frame("variable" = colnames(BankClients),
+                      "tipo" = c("numerical", # tipo numerica discreta
+                                 rep("nominal", 2),
+                                 "ordinal",
+                                 rep("nominal", 3),
+                                 "nominal",
+                                 rep("ordinal", 2),
+                                 rep("numerical", 4),
+                                 "nominal",
+                                 rep("numerical", 5),
+                                 "nominal"),
+                      stringsAsFactors = FALSE)
+rownames(auxiBank) = auxiBank$variable
+#auxiBank
+kable(auxiBank, caption = "Tabla de variables y sus tipos", align = "c")
+
+```
+
+## Revisión de incongruencias
+
+Tras una revisión inicial de la BBDD, se pueden observar varias incongruencias en el resumen descriptivo de nuesta fuente .
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Resumen estadístico
+#el comando invisible es para que no se muestre el resultado del summary pero si el descriptive
+invisible(summary(BankClients))
+#descriptive(BankClients)
+```
+
+Por un lado, se observa que en la variable **age** sus valores maximos y minimos son 350 y 4 años de edad, por lo que decidimos al no estar seguros a que se deben estos datos, convertirlos en NA's.
+También vemos que en la variable **Pdays** hay muchos valores 999, es decir que no habido conctos previos, por lo que decidimos convertir dichos valores en 0, ya que no ha habido ningún contacto previo con los clientes.
+Y por último, en la variable **marital** se observa que hay varios errores ortográficos con respecto a la categoria -married- dando lugar a un mayor número de categorias de las que realmente hay, por lo que corregimos dichos errores ortográficos.
+
+```{r, echo=FALSE}
+#Se puede observar valores anomalos en la variable age, probablemente sean los valores 
+#que son 350 y 4 en donde realmente es un error por lo tanto lo reemplazaremos por NA.
+#Se convierte el valor maximo y minimo a NA, por ser valores inconsistentes.
+BankClients[which.max(BankClients$age),"age"] = NA
+BankClients[which.min(BankClients$age),"age"] = NA
+
+#En la descripcion de la variable "Pdays" vemos datos con valor 999, se entiende
+#que segun el software usado, el programa coloco a valores faltantes como 999, nosotros
+#vamos a considerarlo como 0.
+BankClients$pdays[BankClients$pdays == 999] = 0
+
+## categorias mal escritas 
+# Podemos observar errores en los nombres de las clases: marital (se repiten pero
+#con diferente nombre).
+BankClients$marital[BankClients$marital %in% c("maried", "marrie")] = "married"
+```
+
+# Imputación de datos faltantes
+
+Una vez corregidos los errores superficiales, procedemos a imputar los datos faltantes de nuestra BBDD. Para ello primero realizaremos un recuento de cuantas valores -unknowen- tenemos para posteriormente convertiralas en NA's. Y luego analizar dichos valores faltantes en base a las observaciones y a las variables, y así poder determinar si es necesario eliminar observaciones o variables con más de un 20% de datos faltantes.
+
+**Recuento de unknown por variable:**
+```{r, echo=FALSE, warning = FALSE,message = FALSE, include=FALSE}
+#Recuento de unknown por variable
+apply(BankClients, 2, function(x) sum(x == "unknown", na.rm = TRUE))
+```
+
+```{r, echo=FALSE}
+# Convertir los valores "unknown" en NAs para luego realizar la imputación general para los NAs.
+BankClients[, c("job","marital","education","loan","default", "housing")]= apply(BankClients[, c("job","marital","education","loan","default", "housing")], 2, function(x) {
+  ifelse(x == "unknown", NA, x)})
+
+# una vez analizado convertimos en factor 
+nominal = auxiBank$variable[auxiBank$tipo == "nominal"]
+ordinal = auxiBank$variable[auxiBank$tipo == "ordinal"]
+
+BankClients[nominal] = lapply(BankClients[nominal], as.factor)
+BankClients[ordinal] = lapply(BankClients[ordinal], as.factor)
+```
+
+
+## Exploración del número de faltantes por variable
+
+Tras convertir los valores desconocidos en NA's, procedemos a determinar la cantidad y su porcentaje en cada una de las variables de la BBDD.
+
+```{r, echo=FALSE}
+# Número de faltantes por variable ,tenemos a age , job ,marital, educacion,housing,loan, campaign, e y . 
+numNA = apply(BankClients, 2, function(x) sum(is.na(x)))
+percNA = round(100*apply(BankClients, 2, function(x) mean(is.na(x))), 2)
+tablaNA = data.frame("variable" = colnames(BankClients), numNA, percNA)
+
+# observamos que la variable que contiene casi el 20 % de NA es default
+kable(tablaNA, caption = "Na's por variable y su porcentaje") 
+```
+
+```{r, include=FALSE}
+# Se decide eliminar la variable default por no ser relevante para este análisis ya que al realizar nuestra tabla de frecuencias el porcentaje de unknown roza  un 20% dejando un porcentaje del 80 % en No del cual no aportaria información relevante para el análisis.
+BankClients = BankClients[,setdiff(colnames(BankClients), c("default"))]
+auxiBank = auxiBank[colnames(BankClients),]
+summary(BankClients)
+```
+
+Se decide eliminar la variable default por no ser relevante para este análisis ya que al realizar nuestra tabla de frecuencias el porcentaje de **NA's** roza  un 20% dejando un porcentaje del 80 % en No del cual no aportaria información relevante para el análisis. Para concluir se actualiza los cambios tanto en la BBDD original como la tabla auxiliar.
+
+## Exploración del número de faltantes por observaciones
+
+En este punto, se procede analizar la cantidad de NA's por observaciones, y realizar las acciones necesarias con respecto a los resultados obtenidos.
+ 
+```{r, include=FALSE}
+# Número de faltantes  por observación
+numNA_v = apply(BankClients, 1, function(x) sum(is.na(x)))
+percNA_v = round(100*apply(BankClients, 1, function(x) mean(is.na(x))), 2)
+tablaNA_v = data.frame(numNA_v, percNA_v)
+table(tablaNA_v$percNA_v)
+```
+ 
+Extrapolamos los datos en un grafico de barras, y se puede confirmar que ninguna observacion cuenta con más de un 20% de datos faltantes, por lo que en principio no sería neseraio suprimir ninguna observacion.
+ 
+```{r, echo=FALSE,fig.align='center',fig.height = 3,fig.width =3}
+barplot(table(tablaNA_v$percNA_v), xlab = "% valores faltantes x observaciones", 
+ylab = "Numero de casos", main = "BankClients")
+```
+ 
+Tambien analizamos si la distribución de los NA's es aleatoria, y si existe una maxima correlación entre las variables. Y podemos observar que hay una fuerte correlacion entre las variables **housing** y **loan**, pero no se decide a aliminarlas ya que esto, no necesariamente implica que haya una redundancia en los valores observados de las variables, sino que su patrón de valores faltantes es idéntico.
+ 
+```{r, echo=FALSE,fig.align='center',fig.height=3.5}
+#Veamos si la distribución de valores faltantes es aleatoria
+columnas_na <- c("age","job","marital","education","housing","loan","campaign","y")
+faltantes = is.na(BankClients[, columnas_na])*1
+ 
+# La máxima correlación que se observa es 1 por lo que podemos afirmar hay una alta asociación en términos de valores faltantes como en el caso entre housing y loan.
+
+corrplot(cor(faltantes), method = "ellipse", tl.cex = 0.7, diag = FALSE, 
+tl.col = 1, is.corr = TRUE, addCoef.col = 1, number.cex = 0.5)
+
+```
+
+Tras eliminar las observaciones y/o variables con un gran porcentaje de NA's, procedemos a imputar dicho valores para poder continuar con nuestro proyecto. Para ello mediante la libreria 'MICE' el metodo de imputación predictiva "pmm", que asegura que los valores imputados se ajusten a los rangos y distribuciones observados en las variables correspondientes. En este caso se han realizado 5 imputaciones diferentes
+
+```{r, echo=FALSE}
+#vamos a imputar los datos faltantes mediante la librería mice y a verificar que los datos imputados son valores que podrían haber sido observados en las variables correspondientes.
+varMiss = round(100*apply(BankClients, 2, function(x) mean(is.na(x))), 2)
+Imp = mice(BankClients, seed = 123, m = 5, print = FALSE , method = "pmm")
+mice::stripplot(Imp)
+```
+
+Ahora procedemos a comparar la base original con los datos faltantees, y las imputaciones creadas, como se observa en el grafico de cajas y bigotes, no hay mucha diferencia entre las distintas imputaciones, por lo que decidimos selecionar la primera imputacion creada para nuestra base de datos, ya que rellena los datos manteniendo la distribución original.
+
+```{r, echo=FALSE,fig.align='center',fig.height = 3,fig.width =5}
+Imp1 = mice::complete(Imp)  # Nos devuelve la matriz imputada m=1
+Imp3 = mice::complete(Imp, action = 3)  # Nos devuelve la matriz imputada m=1
+par(mfrow = c(1,3))
+boxplot(BankClients, main = "Sin imputar", las = 2)
+boxplot(Imp1, main = "m = 1", las = 2)
+boxplot(Imp3, main = "m = 3", las = 2)
+```
+
+
+```{r, include=FALSE}
+BankClients = complete(Imp, 1)
+```
+
+
+# Identificación de variables
+
+Veamos que variables no pueden o no deben ser incluidas en los análisis estadísticos, procedemos con las variables numéricas identificando variables constantes, casi constante y valores anómalos.
+
+## Variables numéricas
+Variables constantes, usaremos parámetros de dispersión: desviación típica y coeficiente de desviación.
+Se calculan la desviación estándar y el coeficiente de variación para identificar variables con baja dispersión.
+
+```{r, echo = FALSE}
+## Veamos si tenemos variables constantes:
+# Calcular el resumen
+#summary(BankClients[, auxiBank$tipo == "numerical"])
+kable(
+  summary(BankClients[, auxiBank$tipo == "numerical"]),
+  caption = "Resumen de Variables Numéricas",
+  align = "cccccccrrr"
+)
+
+```
+Se observa de la tabla 3 que no podemos observar variables constantes.
+
+Para ver si tenemos variables "casi constantes" utilizaremos la desviación estándar o coeficiente de variación:
+Creamos un bucle para calcular la desviación estándar y coeficiente de variación.
+
+```{r, echo = FALSE,fig.align='center',fig.height = 3,fig.width =5}
+# Bucle para calcular la SD
+numericas <- auxiBank$variable[auxiBank$tipo == "numerical"]
+mySD <- round(apply(BankClients[, numericas], 2, function(x) sd(x, na.rm = TRUE)), digits = 2)
+# Función para calcular el coeficiente de variación
+CV <- function(x, na.rm = FALSE, digits = 2) {
+  miCV <- sd(x, na.rm = na.rm) / mean(x, na.rm = na.rm)
+  return(round(miCV, digits = digits))
+}
+# Aplicamos la función para calcular el CV de nuestras variables numéricas
+miCV <- round(apply(BankClients[, numericas], 2, CV, na.rm = TRUE), digits = 3)
+# Crear tabla combinada
+resultados <- data.frame(
+  Variable = names(mySD),  # Utiliza los nombres de las columnas numéricas
+  SD = as.numeric(mySD),   # Convierte los resultados de SD a numérico
+  CV = as.numeric(miCV)    # Convierte los resultados de CV a numérico
+)
+kable(resultados)
+```
+observamos que `duration` tienen una dispersión alta pero las mantenemos por ser inherentes de las variables.
+La variable Cons.price.idx es una variable numérica que si bien su dispersión es pequeña, no es discreta.
+
+La variable Cons.price.idx es una variable numérica que si bien su dispersión es pequeña, no es discreta
+
+```{r, echo = FALSE, results = 'hide'}
+
+# Cons.price.idx es una variable numérica que si bien su dispersión es pequeña pero no es discreta
+table(BankClients$cons.price.idx)
+```
+
+## Variables categóricas
+Se crean tablas de frecuencia (absolutas y relativas) para variables categóricas ordinales y nominales, destacando variables con muchas categorías o bajas frecuencias que podrían requerir recodificación.
+
+```{r, echo = FALSE,fig.height = 7.5}
+# Función para calcular la tabla de frecuencias relativas (en %)
+tablaPorcent = function(x, ndec = 2, useNA = "a", ord = NULL) {
+  ttt = round(100 * table(x, useNA = useNA) / sum(table(x, useNA = useNA)), digits = ndec)
+  if (!is.null(ord)) ttt = ttt[order(ttt, decreasing = ord)]
+  return(ttt)
+}
+
+# Creamos una tabla de frecuencias para las variables categóricas ordinales
+ordinal = auxiBank$variable[auxiBank$tipo == "ordinal"]
+
+# Crear un data frame vacío para almacenar los resultados
+tabla_ordinal = data.frame(Variable = character(),
+                            Categoria = character(),
+                            Porcentaje = numeric(),
+                            stringsAsFactors = FALSE)
+
+for (k in ordinal) {
+  porcentajes = tablaPorcent(BankClients[[k]], ndec = 3, useNA = "i", ord = TRUE)
+  
+  # Crear un data frame temporal con los resultados
+  temp_df = data.frame(
+    Variable = rep(k, length(porcentajes)),
+    Categoria = names(porcentajes),
+    Porcentaje = as.numeric(porcentajes)
+  )
+  
+  # Agregar a la tabla final
+  tabla_ordinal = rbind(tabla_ordinal, temp_df)
+}
+
+# Mostrar la tabla de variables ordinales con kable
+#kable(tabla_ordinal, col.names = c("Variable", "Categoría", "Porcentaje (%)"),caption = "Frecuencias Relativas de Variables Ordinales")
+
+# Creamos una tabla de frecuencias para las variables categóricas nominales
+nominal = auxiBank$variable[auxiBank$tipo == "nominal"]
+
+# Crear un data frame vacío para almacenar los resultados de las variables nominales
+tabla_nominal = data.frame(Variable = character(),
+                            Categoria = character(),
+                            Porcentaje = numeric(),
+                            stringsAsFactors = FALSE)
+
+for (k in nominal) {
+  porcentajes = tablaPorcent(BankClients[[k]], ndec = 3, useNA = "i", ord = TRUE)
+  
+  # Crear un data frame temporal con los resultados
+  temp_df = data.frame(
+    Variable = rep(k, length(porcentajes)),
+    Categoria = names(porcentajes),
+    Porcentaje = as.numeric(porcentajes)
+  )
+  
+  # Agregar a la tabla final
+  tabla_nominal =  rbind(tabla_nominal, temp_df)
+}
+
+# Mostrar la tabla de variables nominales con kable
+#kable(tabla_nominal, col.names = c("Variable", "Categoría", "Porcentaje (%)"), caption = "Frecuencias Relativas de Variables Nominales")
+
+library(gridExtra)
+
+# Convertir las tablas en grobs
+tabla_ordinal_grob <- gridExtra::tableGrob(
+  tabla_ordinal, 
+  rows = NULL,
+  theme = ttheme_default(base_size = 8)
+)
+
+tabla_nominal_grob <- gridExtra::tableGrob(
+  tabla_nominal, 
+  rows = NULL,
+  theme = ttheme_default(base_size = 8)
+)
+
+# Combinar ambas tablas en una sola figura
+grid.arrange(tabla_ordinal_grob, tabla_nominal_grob, ncol = 2)
+
+
+```
+
+
+No se observa nada notable en la variabilidad de estas variables categóricas. Únicamente destacar que la variable job y education tiene muchas categorías (lo que puede dificultar su análisis e interpretación) y algunas de ellas con muy baja frecuencia. Se estudiará más adelante como recodificar esta variable para agrupar las categorías de forma que ninguna tenga una frecuencia demasiado baja.
+
+```{r, echo = FALSE, results = 'hide'}
+summary(BankClients)
+#El resumen descriptivo de las variables categóricas y binarias mediante tablas de frecuencias no mostró ningún valor inconsistente
+```
+El resumen descriptivo de las variables categóricas y binarias mediante tablas de frecuencias no mostró ningún valor inconsistente.
+
+## Datos Anómalos
+Separación de variables numéricas en positivas y negativas para facilitar su análisis mediante boxplots y evitar distorsiones en la representación logarítmica.
+Eliminación de observaciones específicas no relevantes, como valores de duración de llamadas iguales a 0, que afectan la normalidad.
+
+Variables numericas
+como se observó en las variables numéricas hay 2 variables donde su mínimo valores son negativos y para poder graficar boxplot usando log no se permite que sean negativos, se realiza un análisis separando los numéricos positivos y a parte los negativos para no distorsionar los valores.
+
+```{r, echo = FALSE,fig.height = 4}
+numeric_negativas =  c("emp.var.rate", "cons.conf.idx")
+filt_numeric = setdiff(auxiBank$variable[auxiBank$tipo == "numerical"], numeric_negativas)
+par(mfrow = c(1,2))
+boxplot(BankClients[,filt_numeric]+1, log = "y", las = 3 , main = "numericos positivos")
+#Variables numéricas con valores negativos :En este caso, para analizar valores atípicos en emp.var.rate y cons.conf.idx, no es necesario usar una escala logarítmica, porque los valores de esta variable ya están en un rango moderado.
+boxplot(BankClients[,numeric_negativas], las = 3 , main = "numericos negativos")
+```
+
+Observando el boxplot de numéricos positivos y tratándose "duration" de una variable que expresa la duración de la llamada, y teniendo solo una observación con valor 0, se considera no relevante y se procede a eliminarla. Además, afecta muy significativamente a la normalidad de esta variable.
+```{r, echo = FALSE, results = 'hide'}
+BankClients[which(BankClients$duration == 0),]
+BankClients=BankClients[BankClients$duration != 0,]
+```
+
+## Transformación y Categorización de Variables
+
+En esta sección, transformamos variables numéricas del dataset para mejorar su distribución y facilitar el análisis estadístico. La transformación nos ayudara a reducir el **sesgo** en variables como `duration` y facilitara la aplicación de técnicas estadísticas que asumen **normalidad**.
+
+### Variables numéricas 
+
+Para cada variable numérica, evaluamos:
+
+- **Distribución inicial** mediante histogramas.
+
+- **Ajuste a normalidad** con gráficos Q-Q y pruebas estadísticas.
+
+- **Transformaciones** que mejoran la normalidad.
+
+```{r,echo=FALSE,fig.align='center',fig.height = 3.5}
+#Visualizar la distribución de sus valores
+numericas = BankClients[,auxiBank$tipo == "numerical"]
+par(mfrow = c(4,3), mar = c(3, 3, 2, 1)) 
+for (v in colnames(numericas)) {
+  hist(numericas[,v], main = v, xlab = "",col = "#2a727a")
+}
+
+
+
+#Visualizar si son normales
+par(mfrow = c(4,3), mar = c(3, 3, 2, 1))
+for (v in colnames(numericas)) {
+  qqnorm(numericas[,v], main = v, xlab = "",col = "#2a727a")
+}
+
+```
+
+Del gráfico global de las variables numericas podemos decir que la variables duration,campaign son valores que requieren transformaciones mientras que para previous se observa primero una alta concentración sobre grupos entre o y 1 , entonces es recomendable categorizarlo y para la variable age podremos intentar transformarlo para obtener una mejor distribución.
+
+
+
+
+```{r,include = FALSE,warning = FALSE,message = FALSE}
+# Variable: Duration (sesgo a la derecha)
+#Transformacion de la variable duración
+#Transformaciones con potencias ("power")
+durationTransf = vector("list")
+durationTransf$power1 = BankClients$duration^(1/3)
+durationTransf$power2 = BankClients$duration^(1/4)
+
+#Transformación logarítmica
+durationTransf$log = log(BankClients$duration)
+
+#Transformación Box-Cox
+myboxcox = boxcox(lm(BankClients$duration ~ 1))
+lambda = myboxcox$x[which.max(myboxcox$y)]; lambda
+durationTransf$boxcox = (BankClients$duration^lambda - 1)/lambda
+
+#Comparación de transformaciones
+par(mfcol = c(2,4))
+for(n in names(durationTransf)) {
+ hist(durationTransf[[n]], xlab = "", main = n, col = "skyblue", breaks = 20)
+ qqnorm(durationTransf[[n]], main = n, col = "red3")
+}
+
+#Test de normalidad
+testNorm = sapply(durationTransf, shapiro.test)
+testNorm[c("statistic", "p.value"),]
+
+
+#la mejor transformada en la box-cox
+BankClients$duration=durationTransf$boxcox
+
+
+# Variable: campaign (sesgo a la derecha)
+# tranformacion de campaign 
+campTransf = vector("list")
+campTransf$power1 = BankClients$campaign^(1/3)
+campTransf$power2 = BankClients$campaign^(1/4)
+##tranf. logaritmica
+campTransf$log = log(BankClients$campaign)
+# Transformación Box-Cox
+myboxcox = boxcox(lm(BankClients$campaign ~ 1))
+lambda = myboxcox$x[which.max(myboxcox$y)]; lambda
+
+# Aplicar transformación Box-Cox con el lambda calculado
+if (lambda == 0) {
+  campTransf$boxcox = log(BankClients$campaign)  # Caso especial cuando lambda = 0
+} else {
+  campTransf$boxcox = (BankClients$campaign^lambda - 1) / lambda
+}
+# Comparación de transformaciones
+par(mfcol = c(2,4))
+for(n in names(campTransf)) {
+  hist(campTransf[[n]], xlab = "", main = n, col = "skyblue", breaks = 20)
+  qqnorm(campTransf[[n]], main = n, col = "red3")
+  qqline(campTransf[[n]], col = "blue", lwd = 2)
+}
+# Test de normalidad
+testNorm = sapply(campTransf,function(x) shapiro.test(x)$p.value)
+testNorm
+
+#Se han realizado transformaciones a la variable campaign y no se observan mejorías por lo que se opta por mantener la variable original
+
+
+# Variable: age
+# tranformacion de age 
+ageTransf = vector("list")
+# Crear una versión ajustada de banco2$duration con un pequeño valor agregado
+#ajusteduration = banco2$duration + 0.1 
+      ##tranf. con potencias (power)
+ageTransf$power1 = BankClients$age^(1/3)
+ageTransf$power2 = BankClients$age^(1/4)
+      ##tranf. logaritmica
+ageTransf$log = log(BankClients$age)
+      # Transformación Box-Cox
+myboxcox = boxcox(lm(BankClients$age ~ 1))
+lambda = myboxcox$x[which.max(myboxcox$y)]; lambda
+
+# Aplicar transformación Box-Cox con el lambda calculado
+if (lambda == 0) {
+  ageTransf$boxcox = log(BankClients$age)  # Caso especial cuando lambda = 0
+} else {
+  ageTransf$boxcox = (BankClients$age^lambda - 1) / lambda
+}
+# Comparación de transformaciones
+par(mfcol = c(2,4))
+for(n in names(ageTransf)) {
+  hist(ageTransf[[n]], xlab = "", main = n, col = "skyblue", breaks = 20)
+  qqnorm(ageTransf[[n]], main = n, col = "red3")
+  qqline(ageTransf[[n]], col = "blue", lwd = 2)
+}
+  # Test de normalidad
+testNorm = sapply(ageTransf,function(x) shapiro.test(x)$p.value)
+#testNorm
+
+#Se han realizado transformaciones a la variable edad y no se observan mejorías por lo que se opta por mantener la variable original
+
+```
+
+
+
+```{r ,include = FALSE,warning = FALSE,message = FALSE}
+
+# variable previous se categorizara ya que debido a la agrupación observada en la distribución de las variables para un mejor analisis es agrupar en 3 categorias : 0 contacto previo, 1 llamada y más de 1 llamada .
+cortes=cut(BankClients$previous, breaks = c(0,0.5,1.5,6), include.lowest = TRUE, labels=c("Sin contacto","1 contacto","Más de 1 contacto"))
+BankClients$previous=cortes
+
+auxiBank$tipo[auxiBank$variable=="previous"]="nominal"
+
+ggplot(BankClients, aes(x = previous)) +
+  geom_bar(fill = "#69b3a2", color = "white") +
+  theme_minimal() +
+  labs(
+    title = "Distribución de la Variable Previous",
+    x = "Categorías de Previous",
+    y = "Frecuencia"
+  )
+
+
+```
+
+### Variables categoricas
+
+Se procede a analizar la distribución de las variables categóricas. El objetivo es revisar si estas variables se encuentran balanceadas. En particular, para la variable education, se busca analizar su distribución, ya que esta puede influir significativamente en los resultados posteriores. Debido a que la variable presenta una gran cantidad de categorías, se agruparán niveles similares para facilitar el análisis y la interpretación.
+
+
+```{r ,echo=FALSE,fig.height=2.5}
+# variable categoricas ordinales
+BankClients$education =  ifelse(
+BankClients$education %in% c("illiterate", "basic.4y", "basic.6y", "basic.9y"), 
+"Low level",ifelse(    BankClients$education %in% c("high.school", "professional.course"), 
+"Intermediate level", 
+ifelse(BankClients$education == "university.degree", "Advanced level", BankClients$education)))
+
+
+
+#ordenamiento del factor
+BankClients$education = factor(BankClients$education, 
+                                  levels = c("Low level", "Intermediate level", "Advanced level"),
+                                  ordered = TRUE)
+
+
+BankClients$month = factor(BankClients$month, 
+                              levels = c("mar", "apr", "may", "jun", "jul", 
+                                         "aug", "sep", "oct", "nov", "dec"), 
+                              ordered = TRUE)
+
+BankClients$day_of_week = factor(BankClients$day_of_week, 
+                              levels = c("mon", "tue", "wed", "thu", "fri"), 
+                              ordered = TRUE)
+
+# Calcular frecuencias y porcentajes para education
+education_counts <- BankClients %>%
+count(education) %>%
+mutate(percentage = n / sum(n) * 100)
+
+plot1 =ggplot(education_counts, aes(x = "", y = percentage, fill = education)) +
+geom_bar(stat = "identity", width = 1, color = "white") +
+coord_polar(theta = "y") +
+geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 4) + theme_void() +
+scale_fill_manual(
+  values = c(
+      "Low level" = "#190e0c",
+      "Intermediate level" = "#900C3F",
+      "Advanced level" = "#69b3a2"
+    )
+  )   +
+  labs(
+    title = "Distribucion por Niveles de Educacion",
+    fill = NULL # Quitar el título de la leyenda
+  ) +
+theme(legend.position = "bottom")
+
+# Calcular frecuencias y porcentajes para month
+month_counts <- BankClients %>%
+count(month) %>%
+mutate(percentage = n / sum(n) * 100)
+  
+month_counts <- BankClients %>%
+  count(month) %>%
+  mutate(percentage = n / sum(n) * 100)
+  
+plot2 <- ggplot(month_counts, aes(x = month, y = percentage, group = 1)) +
+  geom_line(color = "#900C3F", linewidth = 1) +  
+  geom_point(color = "#69b3a2", size = 3) + 
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            vjust = -0.5, size = 3) +
+  theme_minimal() + 
+  labs(
+    title = "  Distribucion % por Mes",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(  
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.text.y = element_blank()
+
+  )
+
+
+grid.arrange(plot1, plot2, ncol = 2,widths = c(1, 1) )
+
+```
+\vspace{1cm}
+
+
+```{r,echo=FALSE,fig.height=2.5}
+# Calcular frecuencias y porcentajes para day_of_week
+  
+day_counts <- BankClients %>%
+count(day_of_week) %>%
+mutate(percentage = n / sum(n) * 100)
+
+ggplot(day_counts, aes(x = day_of_week, y = percentage)) +
+geom_bar(stat = "identity", fill = "#69b3a2", color = "black") +
+geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            vjust = -0.5, size = 3, color = "black") +
+theme_minimal() +
+labs(
+  title = "  Distribucion % por Dia de la semana",
+  x = NULL,
+  y = NULL
+) +
+theme(legend.position = "none",
+      plot.title = element_text(hjust = 0.5),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),axis.text.y = element_blank())
+
+```
+
+Como observamos en los gráficos la distribución de la variable educación es relativamente balanceada entre los tres niveles, lo que garantiza representatividad en los diferentes segmentos educativos , el gráfico de línea muestra cómo se distribuyen  por mes, destacando un mayor porcentaje que podría estar relacionada con campañas específicas o estrategias del banco en ese período y para la variable day_of_week muestra una distribución relativamente uniforme.
+
+# Inferencia estádistica
+
+En este apartado de inferencia estadística se evaluaron hipótesis relacionadas con la probabilidad de que los clientes de un banco se suscriban a un depósito a plazo, utilizando un conjunto de variables categóricas (como Loan, Month, Job, Education, Previous) y numéricas (como Age, Campaign y Duration). A partir de estas variables, se formularon ocho hipótesis que exploran cómo estas características afectan la probabilidad de suscripción. Las pruebas estadísticas empleadas incluyen el test de Chi-cuadrado para evaluar la relación entre variables categóricas y la respuesta (y), así como pruebas no paramétricas como el test de Wilcoxon para comparar medianas entre diferentes grupos. Los resultados se visualizan mediante gráficos de barras apiladas y análisis post-hoc, como la prueba de Tukey, para analizar diferencias significativas entre subgrupos.
+
+
+
+## Relación entre aceptación de crédito y posesión de un crédito personal
+
+Se analiza la relación entre la posesión de un crédito personal (Loan) y la probabilidad de que un cliente se suscriba a un depósito a plazo. Las herramientas estadísticas incluyen el test de **Chi-cuadrado** para evaluar la independencia entre estas variables y gráficos de barras apiladas para observar visualmente las proporciones de aceptación.
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE,fig.align='center',fig.height = 3}
+# Si la persona tiene un credito personal es menos probable que se subscriba a un depósito a plazo
+
+#Se valida la primera hipótesis, de las personas que tiene un crédito personal, solo el 10,5% decidieron suscribirse al depósito a plazo #mientras que, aquellas que no tienen el 11,1% decidieron suscribirse.
+
+# Calcular proporciones por categoría de `loan`
+data_summary = BankClients %>%
+  group_by(loan, y) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(loan) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+# Crear el gráfico con barras apiladas y etiquetas
+ggplot(data_summary, aes(x = loan, y = percentage, fill = y)) + 
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(percentage, 1), "%")), 
+    position = position_stack(vjust = 0.5), 
+    size = 4, 
+    color = "white"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Distribución de Suscripción por Estado de Crédito Personal",
+    x = "Crédito Personal (Loan)",
+    y = "Proporción (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal()
+
+# Crear tabla de contingencia
+contingency_table_loan = table(BankClients$loan, BankClients$y)
+
+# Test de Chi-cuadrado
+chisq_test_loan <- chisq.test(contingency_table_loan)
+
+# Resultados
+
+# Esto significa que existe una relación significativa entre la duración de la llamada y la probabilidad de suscripción.
+print(chisq_test_loan)
+
+# no existe una relación significativa entre tener un crédito personal y la probabilidad de suscribirse a un depósito a plazo.
+
+```
+El p-valor no es inferior a 0,05, por lo que no existe una relación significativa entre tener un crédito personal y la probabilidad de suscribirse a un depósito a plazo.
+
+
+## Relación entre aceptación de crédito y el mes de contacto
+
+Este apartado examina si el mes en el que se contacta al cliente influye en su decisión de aceptar un depósito a plazo. Se utilizan el test de **Chi-cuadrado** y el **test de Wilcoxon** pareado para evaluar diferencias entre meses, y gráficos de barras apiladas para visualizar tendencias estacionales.
+
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.align='center',fig.height = 3}
+
+#  Hay meses o temporadas en los que los clientes potenciales tienden a rechazar las ofertas de depósito a plazo.
+
+#Se valida la tercera hipótesis, hay meses en el que la suscripción al depósito a plazo tiene más éxito. Lo anterior, se puede notar en meses como diciembre, octubre, septiembre y marzo.
+#ordenamiento del factor
+BankClients$education = factor(BankClients$education, 
+                                  levels = c("Low level", "Intermediate level", "Advanced level"),
+                                  ordered = FALSE)
+
+
+BankClients$month = factor(BankClients$month, 
+                              levels = c("mar", "apr", "may", "jun", "jul", 
+                                         "aug", "sep", "oct", "nov", "dec"), 
+                              ordered = FALSE)
+
+BankClients$day_of_week = factor(BankClients$day_of_week, 
+                              levels = c("mon", "tue", "wed", "thu", "fri"), 
+                              ordered = FALSE)
+
+
+# Calcular proporciones de rechazo por mes
+data_month = BankClients %>%
+  group_by(month, y) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(month) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(data_month, aes(x = month, y = percentage, fill = y)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(percentage, 1), "%")), 
+    position = position_stack(vjust = 0.5), 
+    size = 3, 
+    color = "white"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Distribución de Rechazo y Suscripción por Mes",
+    x = "Mes",
+    y = "Proporción (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal()
+
+
+# Variabke Binaria para y, necesario para el test de wilcox
+BankClients$respuesta_binaria = ifelse(BankClients$y == "yes", 1, 0)
+
+
+chisq.test(table(BankClients$respuesta_binaria,BankClients$month))
+
+# Realizar la prueba de Wilcoxon
+# Se realiza la prueba de Wilcoxon para comparar las medianas de las diferentes categorías de "month"
+# en relación con la variable "yy", utilizando el método de ajuste FDR para los p-valores.
+wilcox_results = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$month,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values = wilcox_results$p.value
+
+# Convertir en un data frame eliminando los NA
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) = sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output = kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+
+
+```
+Los valores coloreados en rojo indican un Pvalor inferior a 0,05. Esto indica significación estadística y por lo tanto diferencias entre los meses de contacto respecto a la probabilidad e aceptar el crédito.
+
+## Relación entre aceptación de crédito y ocupación del cliente
+
+Se evalúa si la ocupación (Job) afecta la probabilidad de suscripción a depósitos a plazo. Las pruebas incluyen el test de **Chi-cuadrado** para explorar relaciones significativas y el **test de Wilcoxon** pareado para comparar ocupaciones específicas, apoyado en gráficos de barras apiladas.
+
+
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE,fig.align='center',fig.height = 3}
+# Los clientes mas potenciales que aceptarian realizar este tipo depositos a plazo serian los jubilados.
+
+#Se valida la tercera hipótesis los jubilados son las personas que mas suelen suscribirse a depositos a plazo ya que los jubilados tienden a no gastar mucho su dinero, por lo que es más probable que pongan su dinero a trabajar prestándolo al banco. Sin embargo, es importante notar que los estudiantes tambien aceptarian este tipo de estrategias de mercadeo brindadas por los bancos
+# Calcular proporciones de aceptación por ocupación
+job_summary <- BankClients %>%
+group_by(job, y) %>%
+summarise(count = n(), .groups = "drop") %>%
+group_by(job) %>%
+mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(job_summary, aes(x = job, y = percentage, fill = y)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(percentage, 1), "%")),
+    position = position_stack(vjust = 0.5),  
+    size = 3, 
+    color = "white"
+  ) +
+  labs(
+    title = "Proporción de Aceptación de Depósitos a Plazo por Ocupación",
+    x = "Ocupación",
+    y = "Proporción de Aceptación (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Crear una tabla de contingencia
+contingency_table = table(BankClients$job, BankClients$respuesta_binaria)
+
+# Realizar prueba de Chi-cuadrado
+chisq_test <- chisq.test(contingency_table)
+
+
+# Resultados
+
+# Hay una relación significativa entre la ocupación y la probabilidad de aceptar depósitos a plazo.
+#Esto respalda la afirmación de que ciertos trabajos, como los jubilados (retired), pueden tener una mayor proporción de #aceptación.
+
+print(chisq_test)
+
+
+wilcox_results3 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$job,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values = wilcox_results3$p.value
+
+# Convertir en un data frame eliminando los NA
+
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide)= sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output <- kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+
+
+
+```
+ Los valores coloreados en rojo indican un Pvalor inferior a 0,05. Esto indica significación estadística y por lo tanto diferencias entre los meses de contacto respecto a la probabilidad e aceptar el crédito.
+ 
+## Relación entre aceptación de crédito y nivel educativo
+
+Se explora el impacto del nivel educativo (Education) en la probabilidad de suscripción. Se aplican el test de **Chi-cuadrado** para evaluar relaciones globales y el **test de Wilcoxon** pareado para identificar diferencias específicas entre niveles educativos. Los resultados se presentan mediante gráficos de barras apiladas.
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.align='center',fig.height = 3}
+# los clientes que aceptarian que aceptarian realizar este tipo depositos a plazo serian los que tienen una mayor nivel de educación.
+
+# Calcular proporciones de aceptación por ocupación
+education_summary = BankClients %>%
+group_by(education, y) %>%
+summarise(count = n(), .groups = "drop") %>%
+group_by(education) %>%
+mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(education_summary, aes(x = education, y = percentage, fill = y)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(percentage, 1), "%")),
+    position = position_stack(vjust = 0.5),  
+    size = 3, 
+    color = "white"
+  ) +
+  labs(
+    title = "Proporción de aceptación de Depósitos a Plazo por educacion",
+    x = "Nivel Educativo",
+    y = "Proporción de Aceptación (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Crear una tabla de contingencia
+contingency_table = table(BankClients$education, BankClients$respuesta_binaria)
+
+# Realizar prueba de Chi-cuadrado
+chisq_test = chisq.test(contingency_table)
+# Resultados 
+# Existe una relación significativa entre el nivel educativo y la suscripción.
+print(chisq_test)
+
+#diferencias entre grupos
+
+wilcox_results4 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$education,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values = wilcox_results4$p.value
+
+# Convertir en un data frame eliminando los NA
+
+p_values_clean <- as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide <- reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) <- sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output = kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+```
+Los valores coloreados en rojo indican un P-valor inferior a 0,05. Esto demuestra significación estadística y, por lo tanto, diferencias entre los niveles educativos en relación con la probabilidad de aceptar el crédito.
+
+
+## Relación entre aceptación de crédito y contactos previos
+
+Este apartado analiza si haber sido contactado en campañas anteriores `Previous` incrementa la probabilidad de suscripción. Se aplican el test de **Chi-cuadrado** para analizar la asociación entre contactos previos y aceptación, junto con el **test de Wilcoxon** pareado para identificar diferencias significativas.
+
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.align='center',fig.height = 3}
+
+#  los clientes que aceptarian realizar este tipo depositos a plazo serian los que ya fueron contactados en la anterior campaña
+
+previous_summary = BankClients %>%
+group_by(previous, y) %>%
+summarise(count = n(), .groups = "drop") %>%
+group_by(previous) %>%
+mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(previous_summary, aes(x = previous, y = percentage, fill = y)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(
+    aes(label = paste0(round(percentage, 1), "%")),
+    position = position_stack(vjust = 0.5),  
+    size = 3, 
+    color = "white"
+  ) +
+  labs(
+    title = "Proporción de Aceptación de DP por contacto del anterior campaña",
+    x = "Contacto Previo",
+    y = "Proporción de Aceptación (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Crear una tabla de contingencia
+contingency_table = table(BankClients$previous, BankClients$respuesta_binaria)
+
+# Realizar prueba de Chi-cuadrado
+chisq_test = chisq.test(contingency_table)
+chisq_test
+#diferencias entre grupos
+
+
+wilcox_results5 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$previous,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values = wilcox_results5$p.value
+
+# Convertir en un data frame eliminando los NA
+
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) = sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output = kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+
+
+
+```
+
+
+Los valores coloreados en rojo indican un P-valor inferior a 0,05. Esto evidencia significación estadística y, en consecuencia, diferencias entre los grupos de clientes según el número de contactos previos respecto a la probabilidad de aceptar el crédito.
+
+## Relación entre aceptación de crédito y rango de edad
+
+Se estudia si ciertos rangos etarios presentan mayores probabilidades de suscripción. La variable Age se recategorizó en intervalos definidos (18-20, 20-30, etc.) para facilitar el análisis. Se usan el test de **Chi-cuadrado** y el **test de Wilcoxon** pareado para identificar diferencias entre grupos de edad.
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.height = 3, fig.align='center'}
+# Hay ciertos rangos de edades en el que la suscripción a un depósito a plazo tendrá mayor éxito.
+# se observa que las personas mayores a 60 años se suelen suscribir mas a los depositos a plazos que personas entre 20-60 años.
+
+# Crear rangos de edad
+BankClients <- BankClients %>%
+mutate(age_group = cut(
+    age,
+    breaks = c(10,20,30,40,50,60,100),
+    labels = c("18-20", "20-30", "30-40", "40-50", "50-60", "60+"),
+    include.lowest = TRUE
+  ))
+
+# Calcular proporciones
+age_summary <- BankClients %>%
+  group_by(age_group, y) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(age_group) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(age_summary, aes(x = age_group, y = percentage, fill = y)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), position = position_stack(vjust = 0.5), size = 3,color = "white") +
+  labs(
+    title = "Proporción de Aceptación de Depósitos a Plazo por Rango de Edad",
+    x = "Rango de Edad",
+    y = "Proporción de Aceptación (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal()
+
+# Crear tabla de contingencia
+contingency_table_age <- table(BankClients$age_group, BankClients$respuesta_binaria)
+
+# Prueba de Chi-cuadrado
+chisq_test_age <- chisq.test(contingency_table_age)
+
+print(chisq_test_age)
+
+
+wilcox_results6 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$age_group,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values <- wilcox_results6$p.value
+
+# Convertir en un data frame eliminando los NA
+
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) = sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output = kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+# concluimos que existe una relación significativa entre el rango de edad y la probabilidad de suscripción a un depósito a plazo.
+
+```
+Los valores coloreados en rojo indican un P-valor inferior a 0,05. Esto indica significación estadística y, por lo tanto, diferencias entre los rangos de edad respecto a la probabilidad de aceptar el crédito.
+
+## Relación entre aceptación de crédito y número de contactos
+
+Se evalúa el impacto del número de contactos realizados durante la campaña (Campaign) en la probabilidad de suscripción. La variable fue recategorizada en tres grupos (1-5, 5-10, más de 10) para analizar si la frecuencia de contacto afecta la decisión. Las herramientas incluyen el test de **Chi-cuadrado** y el **test de Wilcoxon** pareado.
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.height = 3,fig.align='center'}
+# El número de contacto que se tuvo con los clientes es realmente importante. Demasiados contactos con el cliente podrían hacer que rechace la oferta de subscribirse o no a un depósito a plazo.
+
+# Se valida que cuando mas se contacta con el cliente la probabilidad de que este rechace la oferta de subscribirse a un deposito a plazo es mayor.
+
+
+# Crear rangos de edad
+BankClients <- BankClients %>%
+mutate(campaign_group = cut(
+    campaign,
+    breaks = c(1,5,10,100),
+    labels = c("1-5", "5-10", "10 +"),
+    include.lowest = TRUE
+  ))
+
+# Calcular proporciones por número de contactos
+campaign_summary <- BankClients %>%
+  group_by(campaign_group, y) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(campaign_group) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+# Gráfico de barras
+ggplot(campaign_summary, aes(x = campaign_group, y = percentage, fill = y)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),position = position_stack(vjust = 0.5), size = 3,color = "white") +
+  labs(
+    title = "Porcentaje de Suscripción por Número de Contactos",
+    x = "Número de Contactos",
+    y = "Porcentaje de Suscripción (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal()
+# Crear tabla de contingencia
+contingency_table = table(BankClients$campaign_group, BankClients$respuesta_binaria)
+
+# Realizar test de Chi-cuadrado
+chisq_test = chisq.test(contingency_table)
+
+chisq_test
+
+#diferencias entre grupos
+wilcox_results7 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$campaign_group,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values = wilcox_results7$p.value
+
+# Convertir en un data frame eliminando los NA
+
+
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) = sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output <- kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+
+```
+Los valores coloreados en rojo indican un P-valor inferior a 0,05. Esto sugiere significación estadística y, en consecuencia, diferencias entre los grupos según el número de contactos realizados en la probabilidad de aceptar el crédito.
+
+## Relación entre aceptación de crédito y duración de la llamada
+
+
+Este análisis explora cómo la duración de las llamadas (Duration) afecta la probabilidad de aceptación. La variable fue recategorizada en intervalos (0-5, 5-10, etc.) para analizar cómo las diferentes duraciones influyen en las decisiones de los clientes. Se aplican el test de **Chi-cuadrado**, el **test de Wilcoxon** pareado, y gráficos de barras.
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE,fig.height = 3 ,fig.align='center'}
+#El número de segundos llevados a cabo en la llamada con el cliente puede ser un buen indicio de hacer que se suscriba al depósito a plazo ya que, de esta manera el cliente logra conocer en que consiste y que políticas tiene realmente aceptar el depósito a plazo.
+
+# Agrupar duración en rangos
+BankClients = BankClients %>%
+mutate(duration_grouped = cut(
+duration,
+breaks = c(0, 5, 10, 15, 20),
+labels = c("0-5", "5-10", "10-15", "15 +"),
+include.lowest = TRUE ))
+
+
+# Preparar datos para el gráfico
+duration_summary = BankClients %>%
+  group_by(duration_grouped, y) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(duration_grouped) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+# Gráfico de barras
+ggplot(duration_summary, aes(x = duration_grouped, y = percentage, fill = y)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")),position = position_stack(vjust = 0.5), size = 3,color = "white") +
+  labs(
+    title = "Porcentaje de Suscripción por Duración de Llamada",
+    x = "Duración de la Llamada (segundos)",
+    y = "Porcentaje de Suscripción (%)",
+    fill = "Suscripción (y)"
+  ) +
+  theme_minimal()
+
+# Crear tabla de contingencia
+contingency_table_duration = table(BankClients$duration_grouped, BankClients$respuesta_binaria)
+
+# Test de Chi-cuadrado
+chisq_test_duration = chisq.test(contingency_table_duration)
+
+chisq_test_duration
+
+#diferencias entre grupos
+wilcox_results8 = pairwise.wilcox.test(
+  x=BankClients$respuesta_binaria ,  # Variable numérica que se quiere analizar
+  g = BankClients$duration_grouped,  # Variable categórica (grupos) que define las comparaciones
+  p.adjust.method = "fdr"  # Método de ajuste de p-valores para manejar comparaciones múltiples
+  ,exact = FALSE
+)
+
+# Extraer los p-valores
+# Los p-valores obtenidos se almacenan en una matriz.
+p_values <- wilcox_results8$p.value
+
+# Convertir en un data frame eliminando los NA
+
+p_values_clean = as.data.frame(as.table(p_values)) %>%
+  filter(!is.na(Freq)) %>%  # Filtramos las filas donde los p-valores son NA
+  rename(Comparison1 = Var1, Comparison2 = Var2, P_Value = Freq)  # Renombramos las columnas para mayor claridad
+
+# Convertir la tabla a formato wide utilizando reshape
+# reshape permite reestructurar los datos de formato largo a formato ancho
+p_values_wide = reshape(
+  p_values_clean,
+  timevar = "Comparison2",  # Las categorías de "Comparison2" serán las columnas
+  idvar = "Comparison1",  # "Comparison1" se mantiene como identificador en las filas
+  direction = "wide"  # Convertimos de formato largo a ancho
+)
+
+# Renombrar columnas para mayor claridad
+colnames(p_values_wide) = sub("P_Value.", "", colnames(p_values_wide))
+
+# Crear matriz de colores para resaltar valores significativos
+highlight_colors = as.matrix(p_values_wide[, -1])  # Extraer valores de p (sin la columna de comparación)
+highlight_colors = apply(highlight_colors, c(1, 2), function(x) {
+  if (!is.na(x) && x < 0.05) {
+    "#FFCCCC"  # Resaltar en rojo si es significativo
+  } else {
+    "white"  # Dejar en blanco si no es significativo
+  }
+})
+
+# Mostrar la tabla en formato wide con resaltado
+
+kbl_output = kbl(p_values_wide, digits = 4, caption = "Resultados de la prueba de Wilcoxon (formato wide)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"),latex_options = "scale_down")
+
+# Aplicar los colores a cada columna de la tabla
+for (col in 2:ncol(p_values_wide)) {
+  kbl_output <- kbl_output %>%
+    column_spec(col, background = highlight_colors[, col - 1])
+}
+
+
+# Mostrar la tabla con los valores resaltados
+kbl_output
+
+
+```
+Los valores coloreados en rojo indican un P-valor inferior a 0,05. Esto indica significación estadística y, por ende, diferencias entre los rangos de duración de llamada respecto a la probabilidad de aceptar el crédito.
+
+ 
+## Regresión Binaria
+
+En este análisis se construye un modelo de regresión logística para identificar los factores que influyen en la probabilidad de que un cliente acepte un depósito a plazo. La variable dependiente es binaria, indicando si el cliente acepta (1) o no (0). Las variables independientes incluyen características demográficas (edad, ocupación, nivel educativo), aspectos relacionados con la campaña (duración de la llamada, número de contactos, mes de contacto) y factores financieros (crédito personal, contactos previos). Este modelo permite evaluar la magnitud y dirección del efecto de cada variable sobre la decisión del cliente, proporcionando una herramienta estadística para comprender y predecir el comportamiento de los clientes.
+
+En este análisis se evalúa la validez de un modelo de regresión logística mediante pruebas de diagnóstico que verifican los supuestos necesarios para su correcta interpretación. Se examina la distribución de los residuos deviance para detectar posibles desajustes, la independencia de los residuos utilizando el test de Durbin-Watson, y la bondad de ajuste global mediante la prueba de Hosmer-Lemeshow. Estos procedimientos permiten determinar si el modelo es adecuado para explicar y predecir la variable de interés.
+
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE,fig.height = 3 ,fig.align='center'}
+
+
+# Crear modelo de regresión
+# Modelo inicial con todas las variables
+modelo = glm(respuesta_binaria ~ age + duration + campaign + job + loan + month + education + previous, 
+              data = BankClients, 
+              family = binomial(link = "logit"))
+
+# Resumen del modelo
+summary_modelo = summary(modelo)
+
+
+# Extraer coeficientes y p-valores
+coeficientes = summary_modelo$coefficients
+coef_table = as.data.frame(coeficientes)
+
+# Filtrar términos significativos (p-valor < 0.05)
+coef_significativos = coef_table[coef_table[, "Pr(>|z|)"] < 0.05, ]
+
+# Agregar nombres de las variables
+coef_significativos = cbind(Variable = rownames(coef_significativos), coef_significativos)
+
+# Seleccionar columnas de interés
+coef_significativos = coef_significativos[, c("Variable", "Estimate", "Pr(>|z|)")]
+
+# Renombrar columnas para mayor claridad
+colnames(coef_significativos) = c("Variable", "Coeficiente", "P-valor")
+
+
+kbl(coef_significativos, 
+    digits = 4, 
+    caption = "Términos Significativos de la Regresión Logística") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+
+
+# Pruebas de diagnóstico
+
+# 1. Normalidad de los residuos (utilizando residuos deviance)
+
+
+residuos = residuals(modelo, type = "deviance")
+
+# Visualización de normalidad (histograma y QQ-plot)
+par(mfrow = c(1,2))
+hist(residuos, main = "Histograma de Residuos", xlab = "Residuos", col = "lightblue", breaks = 20)
+qqnorm(residuos)
+qqline(residuos, col = "red")
+
+# 2. Independencia de residuos (Durbin-Watson test)
+#install.packages("lmtest")
+dw_test <- dwtest(modelo)
+print(dw_test)
+
+
+# Instalar paquete ResourceSelection si no está instalado
+# install.packages("ResourceSelection")
+
+# Prueba de Hosmer-Lemeshow
+hoslem_test <- hoslem.test(BankClients$respuesta_binaria, fitted(modelo), g = 10)
+
+# Mostrar el resultado
+print(hoslem_test)
+
+
+
+```
+
+
+El análisis de los resultados obtenidos en la regresión logística revela varios hallazgos importantes sobre los factores que afectan la probabilidad de aceptar el crédito. A continuación, se destacan los puntos clave:
+
+1. **Intercepto**: El coeficiente del intercepto (-7.7630, p < 0.0001) indica que, en ausencia de todas las variables explicativas, la probabilidad de aceptar el crédito es extremadamente baja.
+
+2. **Duración de la llamada**: La variable `duration` tiene un coeficiente positivo significativo (0.9196, p < 0.0001). Esto sugiere que a medida que aumenta la duración de la llamada, también aumenta significativamente la probabilidad de que el cliente acepte el crédito.
+
+3. **Número de contactos previos (`campaign`)**: Presenta un coeficiente negativo (-0.1468, p = 0.0006), lo que indica que contactar al cliente repetidamente reduce ligeramente la probabilidad de aceptación del crédito.
+
+4. **Ocupación**:
+   - `jobblue-collar` (-0.5052, p = 0.0421) y `jobentrepreneur` (-1.0249, p = 0.0212): Estos grupos tienen una menor probabilidad de aceptar el crédito en comparación con la categoría de referencia (presumiblemente otros empleos).
+
+5. **Meses del contacto**:
+   - Variables como `monthapr`, `monthmay`, `monthjun`, `monthjul`, `monthaug`, y `monthsep` tienen coeficientes negativos significativos. Esto indica que la probabilidad de aceptar el crédito es considerablemente menor durante estos meses en comparación con el mes de referencia. Por ejemplo, el mes de mayo (`monthmay`) muestra una fuerte disminución en la probabilidad con un coeficiente de -3.4426 (p < 0.0001).
+   
+   
+
+### COnclusiones del modelo
+
+- **Duración** es el factor más relevante para incrementar la probabilidad de aceptación del crédito, reflejando la importancia de conversaciones largas y detalladas.
+- **Mes del contacto** y **ocupación** también influyen significativamente en la probabilidad de aceptación, lo que puede guiar estrategias de segmentación temporal y profesional.
+- **Número de contactos** tiene un impacto negativo, sugiriendo que insistir demasiado puede ser contraproducente.
+
+Estos resultados pueden ser usados para optimizar la estrategia de marketing, priorizando llamadas de mayor duración y evitando un número excesivo de contactos en meses desfavorables.
+
+### validación del modelo
+
+-	**Distribución de Residuos:**
+o	El histograma de los residuos muestra una distribución aproximadamente simétrica, aunque con algunas desviaciones de la normalidad en los extremos, como se evidencia también en el QQ-plot. Esto no es un requisito estricto en regresiones logísticas, pero ayuda a identificar posibles desajustes.
+-	**Independencia de Residuos:**
+o	El test de Durbin-Watson arrojó un valor cercano a 2, lo que indica que no hay autocorrelación significativa entre los residuos. Esto sugiere que el modelo cumple con el supuesto de independencia.
+-	**Bondad de Ajuste Global:**
+o	La prueba de Hosmer-Lemeshow resultó en un p-valor de 0.16, lo que implica que no hay evidencia estadísticamente significativa para rechazar la hipótesis nula de un buen ajuste. En otras palabras, las predicciones del modelo se ajustan razonablemente bien a los datos observados.
+
+
+## Curva Roc
+
+En esta sección, se construirá y analizará la **curva ROC (Receiver Operating Characteristic)** y se calculará el **AUC (Área Bajo la Curva)** para evaluar el desempeño del modelo de regresión logística. La curva ROC permite visualizar la capacidad del modelo para discriminar entre los clientes que aceptan o no aceptan el crédito, mostrando la relación entre la sensibilidad (tasa de verdaderos positivos) y la especificidad (tasa de verdaderos negativos) en diferentes umbrales de probabilidad. 
+
+```{r ,echo=FALSE, message=FALSE, warning=FALSE,fig.height = 3 ,fig.align='center'}
+#Vamos a contruir la curva ROC y AUC
+#install.packages("pROC")
+probabilidad_modelo=modelo$fitted.values
+
+objroc <- roc(BankClients$y ~ probabilidad_modelo,auc=T,ci=T)
+objroc
+plot.roc(objroc,print.auc=T,print.thres = "best",col="red"
+         ,xlab = "Specificity", ylab = "Sensitivity")
+```
+
+El AUC, por su parte, proporciona un resumen cuantitativo del rendimiento global del modelo: El AUC es 0.908 (intervalo de confianza: 0.896–0.921), lo que indica un excelente desempeño del modelo. Un AUC cercano a 1 sugiere que el modelo tiene una alta capacidad para diferenciar entre las dos clases. El modelo es robusto y tiene un alto poder discriminativo para predecir la aceptación de depósitos a plazo, siendo útil para la toma de decisiones en el contexto del análisis de clientes bancarios.
+
+
+# Conclusiones finales
+
+El análisis de marketing bancario identificó factores clave que influyen en la aceptación de las campañas. La duración de las llamadas se destacó como determinante del éxito, mientras que un exceso de contactos puede resultar contraproducente, resaltando la importancia de equilibrar calidad y persistencia. Patrones estacionales y demográficos también fueron relevantes: ciertos meses y grupos, como aquellos definidos por educación u ocupación, ofrecen mayores oportunidades de éxito. El modelo de regresión logística mostró un desempeño predictivo sobresaliente (AUC = 0.908), validando la utilidad de las variables seleccionadas. Estos hallazgos sugieren priorizar llamadas largas, evitar la saturación de contactos y ajustar las campañas a momentos y segmentos específicos, optimizando así la efectividad del marketing bancario.
+
+```{r,echo=FALSE}
+## Exportar y guardar datos
+
+write.table(BankClients,
+            "bank.txt",
+            row.names = FALSE)
+```
+
+
