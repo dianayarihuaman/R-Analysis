@@ -2,9 +2,7 @@
 title: "test_final"
 author:
 - Diana Yarihuaman
-- Aldo Salazar
-- Hugo Murgueza
-- Marcelo Narvaez
+
 date: "r Sys.Date()"
 output:
   pdf_document: default
